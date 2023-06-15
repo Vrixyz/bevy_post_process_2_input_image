@@ -9,6 +9,7 @@ use bevy::{
     prelude::*,
     render::{
         camera::RenderTarget,
+        extract_component::ExtractComponent,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_resource::{
             Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
@@ -38,6 +39,14 @@ struct Dimension1 {
 #[derive(Resource, Default, Clone, ExtractResource)]
 struct Dimension2 {
     image: Option<Handle<Image>>,
+}
+
+#[derive(Component, Clone, ExtractComponent)]
+struct CameraSource {
+    /// a camera
+    s1: Entity,
+    /// another camera
+    s2: Entity,
 }
 
 // Marks the first pass cube (rendered to a texture.)
@@ -81,7 +90,7 @@ fn setup(
         FirstPassCube,
         dimension_1_layer,
     ));
-    let image_handle_dimension_1 = create_camera(
+    let (image_handle_dimension_1, camera_1) = create_camera(
         size,
         &mut images,
         &mut meshes,
@@ -116,7 +125,7 @@ fn setup(
         FirstPassCube,
         dimension_2_layer,
     ));
-    let image_handle_dimension_2 = create_camera(
+    let (image_handle_dimension_2, camera_2) = create_camera(
         size,
         &mut images,
         &mut meshes,
@@ -159,6 +168,10 @@ fn setup(
             ..default()
         },
         PostProcessSettings { intensity: 0.02 },
+        CameraSource {
+            s1: camera_1,
+            s2: camera_2,
+        },
     ));
 
     commands.insert_resource(Dimension1 {
@@ -176,7 +189,7 @@ fn create_camera(
     materials: &mut Assets<ColorMaterial>,
     commands: &mut Commands<'_, '_>,
     render_layers: RenderLayers,
-) -> Handle<Image> {
+) -> (Handle<Image>, Entity) {
     // This is the texture that will be rendered to.
     let mut image = Image {
         texture_descriptor: TextureDescriptor {
@@ -199,26 +212,28 @@ fn create_camera(
 
     let image_handle = images.add(image);
 
-    commands.spawn((
-        Camera2dBundle {
-            camera_2d: Camera2d {
-                clear_color: ClearColorConfig::Custom(Color::WHITE),
+    let cam = commands
+        .spawn((
+            Camera2dBundle {
+                camera_2d: Camera2d {
+                    clear_color: ClearColorConfig::Custom(Color::WHITE),
+                    ..default()
+                },
+                camera: Camera {
+                    // render before the "main pass" camera
+                    order: -1,
+                    target: RenderTarget::Image(image_handle.clone()),
+                    ..default()
+                },
+                transform: Transform::from_translation(Vec3::new(0.0, 0.0, 15.0))
+                    .looking_at(Vec3::ZERO, Vec3::Y),
                 ..default()
             },
-            camera: Camera {
-                // render before the "main pass" camera
-                order: -1,
-                target: RenderTarget::Image(image_handle.clone()),
-                ..default()
-            },
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 15.0))
-                .looking_at(Vec3::ZERO, Vec3::Y),
-            ..default()
-        },
-        render_layers,
-    ));
+            render_layers,
+        ))
+        .id();
 
-    image_handle
+    (image_handle, cam)
 }
 
 /// Rotates the inner cube (first dimension)

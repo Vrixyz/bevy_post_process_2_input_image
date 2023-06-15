@@ -30,7 +30,7 @@ use bevy::{
     utils::Duration,
 };
 
-use crate::Dimension1;
+use crate::{CameraSource, Dimension1};
 
 /// It is generally encouraged to set up post processing effects as a plugin
 pub struct PostProcessPlugin;
@@ -101,6 +101,7 @@ struct PostProcessNode {
     // The node needs a query to gather data from the ECS in order to do its rendering,
     // but it's not a normal system so we need to define it manually.
     query: QueryState<&'static ViewTarget, With<ExtractedView>>,
+    query_source: QueryState<&'static CameraSource>,
 }
 
 impl PostProcessNode {
@@ -111,6 +112,7 @@ impl FromWorld for PostProcessNode {
     fn from_world(world: &mut World) -> Self {
         Self {
             query: QueryState::new(world),
+            query_source: QueryState::new(world),
         }
     }
 }
@@ -139,9 +141,17 @@ impl Node for PostProcessNode {
         // Get the entity of the view for the render graph where this node is running
         let view_entity = graph_context.view_entity();
 
+        let Ok(source) = self.query_source.get_manual(world, view_entity) else {
+            return Ok(());
+        };
+        // TODO: extract 1 component which targets the 2 other cameras, get their view_target from there
+
         // We get the data we need from the world based on the view entity passed to the node.
         // The data is the query that was defined earlier in the [`PostProcessNode`]
-        let Ok(view_target) = self.query.get_manual(world, view_entity) else {
+        let Ok(view_target_1) = self.query.get_manual(world, source.s1) else {
+            return Ok(());
+        };
+        let Ok(view_target_2) = self.query.get_manual(world, source.s2) else {
             return Ok(());
         };
 
@@ -170,7 +180,8 @@ impl Node for PostProcessNode {
         // [`ViewTarget`] will internally flip the [`ViewTarget`]'s main
         // texture to the `destination` texture. Failing to do so will cause
         // the current main texture information to be lost.
-        let post_process = view_target.post_process_write();
+        let post_process_1 = view_target_1.post_process_write();
+        let post_process_2 = view_target_2.post_process_write();
 
         let handle_dimension1 = world.get_resource::<Dimension1>();
         if handle_dimension1.is_none() {
@@ -196,7 +207,7 @@ impl Node for PostProcessNode {
                     BindGroupEntry {
                         binding: 0,
                         // Make sure to use the source view
-                        resource: BindingResource::TextureView(post_process.source),
+                        resource: BindingResource::TextureView(post_process_1.source),
                     },
                     BindGroupEntry {
                         binding: 1,
@@ -206,7 +217,8 @@ impl Node for PostProcessNode {
                     BindGroupEntry {
                         binding: 2,
                         // Make sure to use the source view
-                        resource: BindingResource::TextureView(&view.texture_view),
+                        //resource: BindingResource::TextureView(&view.texture_view),
+                        resource: BindingResource::TextureView(post_process_2.source),
                     },
                     BindGroupEntry {
                         binding: 3,
@@ -227,7 +239,7 @@ impl Node for PostProcessNode {
             color_attachments: &[Some(RenderPassColorAttachment {
                 // We need to specify the post process destination view here
                 // to make sure we write to the appropriate texture.
-                view: post_process.destination,
+                view: post_process_1.destination,
                 resolve_target: None,
                 ops: Operations::default(),
             })],
