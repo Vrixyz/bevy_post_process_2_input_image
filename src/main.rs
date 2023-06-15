@@ -9,6 +9,7 @@ use bevy::{
     prelude::*,
     render::{
         camera::RenderTarget,
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_resource::{
             Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
         },
@@ -22,17 +23,19 @@ fn main() {
         .init_resource::<Dimension1>()
         .init_resource::<Dimension2>()
         .add_plugins(DefaultPlugins)
+        .add_plugin(ExtractResourcePlugin::<Dimension1>::default())
+        .add_plugin(ExtractResourcePlugin::<Dimension2>::default())
         .add_plugin(PostProcessPlugin)
         .add_systems(Startup, setup)
         .add_systems(Update, (rotator_system, show_dim))
         .run();
 }
 
-#[derive(Resource, Default, Debug)]
+#[derive(Resource, Default, Debug, Clone, ExtractResource)]
 struct Dimension1 {
     image: Option<Handle<Image>>,
 }
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Clone, ExtractResource)]
 struct Dimension2 {
     image: Option<Handle<Image>>,
 }
@@ -227,5 +230,5 @@ fn rotator_system(time: Res<Time>, mut query: Query<&mut Transform, With<FirstPa
 }
 
 fn show_dim(dim: Res<Dimension1>) {
-    dbg!(dim);
+    //dbg!(dim);
 }

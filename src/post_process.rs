@@ -174,7 +174,6 @@ impl Node for PostProcessNode {
 
         let handle_dimension1 = world.get_resource::<Dimension1>();
         if handle_dimension1.is_none() {
-            dbg!("why is is always none ? :o");
             return Ok(());
         }
         let image_dim1 = handle_dimension1.unwrap().image.clone().unwrap_or_default();
