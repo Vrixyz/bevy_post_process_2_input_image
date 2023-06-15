@@ -19,11 +19,22 @@ use post_process::{PostProcessPlugin, PostProcessSettings};
 
 fn main() {
     App::new()
+        .init_resource::<Dimension1>()
+        .init_resource::<Dimension2>()
         .add_plugins(DefaultPlugins)
         .add_plugin(PostProcessPlugin)
         .add_systems(Startup, setup)
-        .add_systems(Update, (rotator_system))
+        .add_systems(Update, (rotator_system, show_dim))
         .run();
+}
+
+#[derive(Resource, Default, Debug)]
+struct Dimension1 {
+    image: Option<Handle<Image>>,
+}
+#[derive(Resource, Default)]
+struct Dimension2 {
+    image: Option<Handle<Image>>,
 }
 
 // Marks the first pass cube (rendered to a texture.)
@@ -78,7 +89,7 @@ fn setup(
     // This material has the texture that has been rendered for dimension 1.
     let material_handle_dim1 = materials.add(ColorMaterial {
         color: Color::default(),
-        texture: Some(image_handle_dimension_1),
+        texture: Some(image_handle_dimension_1.clone()),
     });
 
     let dimension_2_layer = RenderLayers::layer(2);
@@ -114,7 +125,7 @@ fn setup(
     // This material has the texture that has been rendered for dimension 1.
     let material_handle_dim2 = materials.add(ColorMaterial {
         color: Color::default(),
-        texture: Some(image_handle_dimension_2),
+        texture: Some(image_handle_dimension_2.clone()),
     });
 
     let quad_handle = meshes.add(shape::Quad::new(Vec2::new(quad_size, quad_size)).into());
@@ -146,6 +157,13 @@ fn setup(
         },
         PostProcessSettings { intensity: 0.02 },
     ));
+
+    commands.insert_resource(Dimension1 {
+        image: Some(image_handle_dimension_1),
+    });
+    commands.insert_resource(Dimension2 {
+        image: Some(image_handle_dimension_2),
+    });
 }
 
 fn create_camera(
@@ -206,4 +224,8 @@ fn rotator_system(time: Res<Time>, mut query: Query<&mut Transform, With<FirstPa
         //transform.rotate_x(1.5 * time.delta_seconds());
         transform.rotate_z(1.3 * time.delta_seconds());
     }
+}
+
+fn show_dim(dim: Res<Dimension1>) {
+    dbg!(dim);
 }

@@ -26,10 +26,15 @@
 var screen_texture: texture_2d<f32>;
 @group(0) @binding(1)
 var texture_sampler: sampler;
+@group(0) @binding(2)
+var screen_texture_2: texture_2d<f32>;
+@group(0) @binding(3)
+var texture_sampler_2: sampler;
+
 struct PostProcessSettings {
     intensity: f32,
 }
-@group(0) @binding(2)
+@group(0) @binding(4)
 var<uniform> settings: PostProcessSettings;
 
 @fragment

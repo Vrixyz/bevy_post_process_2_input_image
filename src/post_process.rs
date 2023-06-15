@@ -1,6 +1,7 @@
 use bevy::core_pipeline::core_2d;
 use bevy::prelude::*;
 
+use bevy::render::render_asset::RenderAssets;
 use bevy::{
     asset::ChangeWatcher,
     core_pipeline::{
@@ -28,6 +29,8 @@ use bevy::{
     },
     utils::Duration,
 };
+
+use crate::Dimension1;
 
 /// It is generally encouraged to set up post processing effects as a plugin
 pub struct PostProcessPlugin;
@@ -169,6 +172,16 @@ impl Node for PostProcessNode {
         // the current main texture information to be lost.
         let post_process = view_target.post_process_write();
 
+        let handle_dimension1 = world.get_resource::<Dimension1>();
+        if handle_dimension1.is_none() {
+            dbg!("why is is always none ? :o");
+            return Ok(());
+        }
+        let image_dim1 = handle_dimension1.unwrap().image.clone().unwrap_or_default();
+
+        let gpu_images = world.get_resource::<RenderAssets<Image>>().unwrap();
+        let view = &gpu_images[&image_dim1];
+
         // The bind_group gets created each frame.
         //
         // Normally, you would create a bind_group in the Queue set, but this doesn't work with the post_process_write().
@@ -193,6 +206,16 @@ impl Node for PostProcessNode {
                     },
                     BindGroupEntry {
                         binding: 2,
+                        // Make sure to use the source view
+                        resource: BindingResource::TextureView(&view.texture_view),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        // Use the sampler created for the pipeline
+                        resource: BindingResource::Sampler(&view.sampler),
+                    },
+                    BindGroupEntry {
+                        binding: 4,
                         // Set the settings binding
                         resource: settings_binding.clone(),
                     },
@@ -256,9 +279,27 @@ impl FromWorld for PostProcessPipeline {
                     ty: BindingType::Sampler(SamplerBindingType::Filtering),
                     count: None,
                 },
-                // The settings uniform that will control the effect
+                // The screen texture
                 BindGroupLayoutEntry {
                     binding: 2,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                // The sampler that will be used to sample the screen texture
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
+                // The settings uniform that will control the effect
+                BindGroupLayoutEntry {
+                    binding: 4,
                     visibility: ShaderStages::FRAGMENT,
                     ty: BindingType::Buffer {
                         ty: bevy::render::render_resource::BufferBindingType::Uniform,
