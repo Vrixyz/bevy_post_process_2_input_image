@@ -2,8 +2,7 @@
 
 mod post_process;
 
-use std::f32::consts::PI;
-
+use bevy::input::common_conditions::input_toggle_active;
 use bevy::{
     core_pipeline::clear_color::ClearColorConfig,
     prelude::*,
@@ -17,13 +16,18 @@ use bevy::{
         view::RenderLayers,
     },
 };
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use post_process::{PostProcessPlugin, PostProcessSettings};
 
 fn main() {
     App::new()
-        .init_resource::<Dimension1>()
-        .init_resource::<Dimension2>()
+        .register_type::<Dimension1>()
+        .register_type::<Dimension2>()
+        .register_type::<CameraSource>()
         .add_plugins(DefaultPlugins)
+        .add_plugin(
+            WorldInspectorPlugin::default().run_if(input_toggle_active(false, KeyCode::Escape)),
+        )
         .add_plugin(ExtractResourcePlugin::<Dimension1>::default())
         .add_plugin(ExtractResourcePlugin::<Dimension2>::default())
         .add_plugin(PostProcessPlugin)
@@ -32,16 +36,16 @@ fn main() {
         .run();
 }
 
-#[derive(Resource, Default, Debug, Clone, ExtractResource)]
+#[derive(Resource, Default, Debug, Clone, ExtractResource, Reflect, FromReflect)]
 struct Dimension1 {
     image: Option<Handle<Image>>,
 }
-#[derive(Resource, Default, Clone, ExtractResource)]
+#[derive(Resource, Default, Clone, ExtractResource, Reflect, FromReflect)]
 struct Dimension2 {
     image: Option<Handle<Image>>,
 }
 
-#[derive(Component, Clone, ExtractComponent)]
+#[derive(Component, Clone, ExtractComponent, Reflect, FromReflect)]
 struct CameraSource {
     /// a camera
     s1: Entity,
@@ -50,11 +54,11 @@ struct CameraSource {
 }
 
 // Marks the first pass cube (rendered to a texture.)
-#[derive(Component)]
+#[derive(Component, Reflect, FromReflect)]
 struct FirstPassCube;
 
 // Marks the main pass cube, to which the texture is applied.
-#[derive(Component)]
+#[derive(Component, Reflect, FromReflect)]
 struct MainPassCube;
 
 fn setup(
@@ -63,17 +67,16 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    let quad_size = 150f32;
     let size = Extent3d {
-        width: quad_size as u32,
-        height: quad_size as u32,
+        width: 1280,
+        height: 720,
         ..default()
     };
     let dimension_1_layer = RenderLayers::layer(1);
 
+    let quad_size = Vec2::new(250f32, 250f32);
     // The quad within dimension 1
-    let mesh =
-        meshes.add(shape::Quad::new(Vec2::new(size.width as f32, size.height as f32)).into());
+    let mesh = meshes.add(shape::Quad::new(quad_size).into());
     let cube_material_handle = materials.add(ColorMaterial {
         color: Color::RED,
         texture: None,
@@ -98,17 +101,11 @@ fn setup(
         &mut commands,
         dimension_1_layer,
     );
-    // This material has the texture that has been rendered for dimension 1.
-    let material_handle_dim1 = materials.add(ColorMaterial {
-        color: Color::default(),
-        texture: Some(image_handle_dimension_1.clone()),
-    });
 
     let dimension_2_layer = RenderLayers::layer(2);
 
-    // The quad within dimension 1
-    let mesh =
-        meshes.add(shape::Quad::new(Vec2::new(size.width as f32, size.height as f32)).into());
+    // The quad within dimension 2
+    let mesh = meshes.add(shape::Quad::new(quad_size).into());
     let cube_material_handle = materials.add(ColorMaterial {
         color: Color::BLUE,
         texture: None,
@@ -133,33 +130,6 @@ fn setup(
         &mut commands,
         dimension_2_layer,
     );
-
-    // This material has the texture that has been rendered for dimension 1.
-    let material_handle_dim2 = materials.add(ColorMaterial {
-        color: Color::default(),
-        texture: Some(image_handle_dimension_2.clone()),
-    });
-
-    let quad_handle = meshes.add(shape::Quad::new(Vec2::new(quad_size, quad_size)).into());
-    // Main pass quad, with material containing the rendered first dimension texture.
-    commands.spawn((
-        ColorMesh2dBundle {
-            mesh: quad_handle.clone().into(),
-            material: material_handle_dim1,
-            transform: Transform::from_xyz(-150.0, 0.0, 1.5),
-            ..default()
-        },
-        MainPassCube,
-    ));
-    commands.spawn((
-        ColorMesh2dBundle {
-            mesh: quad_handle.into(),
-            material: material_handle_dim2,
-            transform: Transform::from_xyz(150.0, 0.0, 1.5),
-            ..default()
-        },
-        MainPassCube,
-    ));
 
     // The main pass camera.
     commands.spawn((
@@ -201,6 +171,7 @@ fn create_camera(
             sample_count: 1,
             usage: TextureUsages::TEXTURE_BINDING
                 | TextureUsages::COPY_DST
+                | TextureUsages::COPY_SRC
                 | TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         },

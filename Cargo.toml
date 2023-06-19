@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 bevy = { git = "https://github.com/bevyengine/bevy.git", branch = "main" }
+bevy-inspector-egui = { git = "https://github.com/Vrixyz/bevy-inspector-egui.git", branch = "bevy-main" }

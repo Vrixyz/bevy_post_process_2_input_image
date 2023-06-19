@@ -30,14 +30,14 @@ use bevy::{
     utils::Duration,
 };
 
-use crate::{CameraSource, Dimension1};
+use crate::{CameraSource, Dimension1, Dimension2};
 
 /// It is generally encouraged to set up post processing effects as a plugin
 pub struct PostProcessPlugin;
 
 impl Plugin for PostProcessPlugin {
     fn build(&self, app: &mut App) {
-        app
+        app.register_type::<PostProcessSettings>()
             // The settings will be a component that lives in the main world but will
             // be extracted to the render world every frame.
             // This makes it possible to control the effect from the main world.
@@ -48,7 +48,8 @@ impl Plugin for PostProcessPlugin {
             // The settings will also be the data used in the shader.
             // This plugin will prepare the component for the GPU by creating a uniform buffer
             // and writing the data to that buffer every frame.
-            .add_plugin(UniformComponentPlugin::<PostProcessSettings>::default());
+            .add_plugin(UniformComponentPlugin::<PostProcessSettings>::default())
+            .add_plugin(ExtractComponentPlugin::<CameraSource>::default());
 
         // We need to get the render app from the main app
         let Ok(render_app) = app.get_sub_app_mut(RenderApp) else {
@@ -125,6 +126,7 @@ impl Node for PostProcessNode {
         // This is mostly boilerplate. There are plans to remove this in the future.
         // For now, you can just copy it.
         self.query.update_archetypes(world);
+        self.query_source.update_archetypes(world);
     }
 
     // Runs the node logic
@@ -145,7 +147,9 @@ impl Node for PostProcessNode {
             return Ok(());
         };
         // TODO: extract 1 component which targets the 2 other cameras, get their view_target from there
-
+        let Ok(view_target_main) = self.query.get_manual(world, view_entity) else {
+            return Ok(());
+        };
         // We get the data we need from the world based on the view entity passed to the node.
         // The data is the query that was defined earlier in the [`PostProcessNode`]
         let Ok(view_target_1) = self.query.get_manual(world, source.s1) else {
@@ -180,17 +184,26 @@ impl Node for PostProcessNode {
         // [`ViewTarget`] will internally flip the [`ViewTarget`]'s main
         // texture to the `destination` texture. Failing to do so will cause
         // the current main texture information to be lost.
+        let post_process_main = view_target_main.post_process_write();
         let post_process_1 = view_target_1.post_process_write();
         let post_process_2 = view_target_2.post_process_write();
 
+        // TODO: Should I use the post_process_write or the references to the images ?
         let handle_dimension1 = world.get_resource::<Dimension1>();
         if handle_dimension1.is_none() {
             return Ok(());
         }
         let image_dim1 = handle_dimension1.unwrap().image.clone().unwrap_or_default();
-
         let gpu_images = world.get_resource::<RenderAssets<Image>>().unwrap();
-        let view = &gpu_images[&image_dim1];
+        let gpu_image_1 = &gpu_images.get(&image_dim1).unwrap();
+
+        let handle_dimension2 = world.get_resource::<Dimension2>();
+        if handle_dimension2.is_none() {
+            return Ok(());
+        }
+        let image_dim2 = handle_dimension2.unwrap().image.clone().unwrap_or_default();
+        let gpu_images = world.get_resource::<RenderAssets<Image>>().unwrap();
+        let gpu_image_2 = gpu_images.get(&image_dim2).unwrap();
 
         // The bind_group gets created each frame.
         //
@@ -207,23 +220,23 @@ impl Node for PostProcessNode {
                     BindGroupEntry {
                         binding: 0,
                         // Make sure to use the source view
-                        resource: BindingResource::TextureView(post_process_1.source),
+                        resource: BindingResource::TextureView(&gpu_image_1.texture_view),
                     },
                     BindGroupEntry {
                         binding: 1,
                         // Use the sampler created for the pipeline
-                        resource: BindingResource::Sampler(&post_process_pipeline.sampler),
+                        resource: BindingResource::Sampler(&gpu_image_1.sampler),
                     },
                     BindGroupEntry {
                         binding: 2,
                         // Make sure to use the source view
                         //resource: BindingResource::TextureView(&view.texture_view),
-                        resource: BindingResource::TextureView(post_process_2.source),
+                        resource: BindingResource::TextureView(&gpu_image_2.texture_view),
                     },
                     BindGroupEntry {
                         binding: 3,
                         // Use the sampler created for the pipeline
-                        resource: BindingResource::Sampler(&view.sampler),
+                        resource: BindingResource::Sampler(&gpu_image_2.sampler),
                     },
                     BindGroupEntry {
                         binding: 4,
@@ -239,7 +252,7 @@ impl Node for PostProcessNode {
             color_attachments: &[Some(RenderPassColorAttachment {
                 // We need to specify the post process destination view here
                 // to make sure we write to the appropriate texture.
-                view: post_process_1.destination,
+                view: post_process_main.destination,
                 resolve_target: None,
                 ops: Operations::default(),
             })],
@@ -257,7 +270,7 @@ impl Node for PostProcessNode {
 }
 
 // This contains global data used by the render pipeline. This will be created once on startup.
-#[derive(Resource)]
+#[derive(Resource, Clone, Debug)]
 struct PostProcessPipeline {
     layout: BindGroupLayout,
     sampler: Sampler,
@@ -367,7 +380,7 @@ impl FromWorld for PostProcessPipeline {
 }
 
 // This is the component that will get passed to the shader
-#[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType)]
+#[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType, Reflect, FromReflect)]
 pub struct PostProcessSettings {
     pub intensity: f32,
 }
