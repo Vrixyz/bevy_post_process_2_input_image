@@ -15,35 +15,33 @@ use bevy::{
         },
         view::RenderLayers,
     },
+    input::common_conditions::input_just_pressed,
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use post_process::{PostProcessPlugin, PostProcessSettings};
 
 fn main() {
     App::new()
-        .register_type::<Dimension1>()
-        .register_type::<Dimension2>()
+        .register_type::<Dimensions>()
         .register_type::<CameraSource>()
         .add_plugins(DefaultPlugins)
         .add_plugin(
             WorldInspectorPlugin::default().run_if(input_toggle_active(false, KeyCode::Escape)),
         )
-        .add_plugin(ExtractResourcePlugin::<Dimension1>::default())
-        .add_plugin(ExtractResourcePlugin::<Dimension2>::default())
+        .add_plugin(ExtractResourcePlugin::<Dimensions>::default())
         .add_plugin(PostProcessPlugin)
         .add_systems(Startup, setup)
-        .add_systems(Update, (rotator_system, show_dim))
+        .add_systems(Update, rotator_system)
+        .add_systems(Update, switch_dimension.run_if(input_just_pressed(KeyCode::D)))
         .run();
 }
 
 #[derive(Resource, Default, Debug, Clone, ExtractResource, Reflect, FromReflect)]
-struct Dimension1 {
-    image: Option<Handle<Image>>,
+struct Dimensions {
+    current: Option<Handle<Image>>,
+    other: Option<Handle<Image>>,
 }
-#[derive(Resource, Default, Clone, ExtractResource, Reflect, FromReflect)]
-struct Dimension2 {
-    image: Option<Handle<Image>>,
-}
+
 
 #[derive(Component, Clone, ExtractComponent, Reflect, FromReflect)]
 struct CameraSource {
@@ -86,7 +84,7 @@ fn setup(
             visibility: Visibility::default(),
             computed_visibility: ComputedVisibility::default(),
         },
-        Rotate(2.3f32),
+        Rotate(1.8f32),
         dimension_1_layer,
     ));
     let (image_handle_dimension_1, camera_1) = create_camera(
@@ -140,11 +138,9 @@ fn setup(
         },
     ));
 
-    commands.insert_resource(Dimension1 {
-        image: Some(image_handle_dimension_1),
-    });
-    commands.insert_resource(Dimension2 {
-        image: Some(image_handle_dimension_2),
+    commands.insert_resource(Dimensions {
+        current: Some(image_handle_dimension_1),
+        other: Some(image_handle_dimension_2)
     });
 }
 
@@ -211,6 +207,8 @@ fn rotator_system(time: Res<Time>, mut query: Query<(&mut Transform, &Rotate)>) 
     }
 }
 
-fn show_dim(dim: Res<Dimension1>) {
-    //dbg!(dim);
+fn switch_dimension(mut dim: ResMut<Dimensions>) {
+        let current = dim.current.clone();
+        let other = dim.other.clone();
+        *dim = Dimensions {current: other, other: current};
 }

@@ -98,8 +98,11 @@ fn simplexNoise2(v: vec2<f32>) -> f32 {
 @fragment
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let noise = simplexNoise2((in.uv * 15.5) + globals.time * 0.5);
-    let c1 = textureSample(screen_texture_1, texture_sampler_1, in.uv + noise * 0.005 + sin(globals.time) * 0.01) * 0.02;
+    let c1 = textureSample(screen_texture_1, texture_sampler_1, in.uv + noise * 0.005 + sin(globals.time) * 0.01);// * 0.1;
     var c2 = textureSample(screen_texture_2, texture_sampler_2, in.uv);
+    if c2.r > 0.0 || c2.g > 0.0 || c2.b > 0.0 {
+        return c2;
+    }
     //c2.g = noise;
-    return c1 + c2;
+    return mix(c1, c2, 0.9);
 }

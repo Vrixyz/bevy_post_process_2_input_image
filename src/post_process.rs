@@ -32,7 +32,7 @@ use bevy::{
     utils::Duration,
 };
 
-use crate::{CameraSource, Dimension1, Dimension2};
+use crate::{CameraSource, Dimensions};
 
 /// It is generally encouraged to set up post processing effects as a plugin
 pub struct PostProcessPlugin;
@@ -196,20 +196,15 @@ impl Node for PostProcessNode {
         let post_process_2 = view_target_2.post_process_write();
 
         // TODO: Should I use the post_process_write or the references to the images ?
-        let handle_dimension1 = world.get_resource::<Dimension1>();
-        if handle_dimension1.is_none() {
+        let Some(handle_dimensions) = world.get_resource::<Dimensions>() else {
             return Ok(());
-        }
-        let image_dim1 = handle_dimension1.unwrap().image.clone().unwrap_or_default();
+        };
         let gpu_images = world.get_resource::<RenderAssets<Image>>().unwrap();
+
+        let image_dim1 = handle_dimensions.current.clone().unwrap_or_default();
         let gpu_image_1 = &gpu_images.get(&image_dim1).unwrap();
 
-        let handle_dimension2 = world.get_resource::<Dimension2>();
-        if handle_dimension2.is_none() {
-            return Ok(());
-        }
-        let image_dim2 = handle_dimension2.unwrap().image.clone().unwrap_or_default();
-        let gpu_images = world.get_resource::<RenderAssets<Image>>().unwrap();
+        let image_dim2 = handle_dimensions.other.clone().unwrap_or_default();
         let gpu_image_2 = gpu_images.get(&image_dim2).unwrap();
 
         // The bind_group gets created each frame.
