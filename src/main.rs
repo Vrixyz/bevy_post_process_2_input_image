@@ -55,11 +55,7 @@ struct CameraSource {
 
 // Marks the first pass cube (rendered to a texture.)
 #[derive(Component, Reflect, FromReflect)]
-struct FirstPassCube;
-
-// Marks the main pass cube, to which the texture is applied.
-#[derive(Component, Reflect, FromReflect)]
-struct MainPassCube;
+struct Rotate(f32);
 
 fn setup(
     mut commands: Commands,
@@ -90,7 +86,7 @@ fn setup(
             visibility: Visibility::default(),
             computed_visibility: ComputedVisibility::default(),
         },
-        FirstPassCube,
+        Rotate(2.3f32),
         dimension_1_layer,
     ));
     let (image_handle_dimension_1, camera_1) = create_camera(
@@ -119,7 +115,7 @@ fn setup(
             visibility: Visibility::default(),
             computed_visibility: ComputedVisibility::default(),
         },
-        FirstPassCube,
+        Rotate(1.5f32),
         dimension_2_layer,
     ));
     let (image_handle_dimension_2, camera_2) = create_camera(
@@ -187,7 +183,7 @@ fn create_camera(
         .spawn((
             Camera2dBundle {
                 camera_2d: Camera2d {
-                    clear_color: ClearColorConfig::Custom(Color::WHITE),
+                    clear_color: ClearColorConfig::Custom(Color::BLACK),
                     ..default()
                 },
                 camera: Camera {
@@ -208,10 +204,10 @@ fn create_camera(
 }
 
 /// Rotates the inner cube (first dimension)
-fn rotator_system(time: Res<Time>, mut query: Query<&mut Transform, With<FirstPassCube>>) {
-    for mut transform in &mut query {
+fn rotator_system(time: Res<Time>, mut query: Query<(&mut Transform, &Rotate)>) {
+    for (mut transform, rotate) in &mut query {
         //transform.rotate_x(1.5 * time.delta_seconds());
-        transform.rotate_z(1.3 * time.delta_seconds());
+        transform.rotate_z(rotate.0 * time.delta_seconds());
     }
 }
 

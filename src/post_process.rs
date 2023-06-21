@@ -1,7 +1,9 @@
 use bevy::core_pipeline::core_2d;
 use bevy::prelude::*;
 
+use bevy::render::globals::{GlobalsBuffer, GlobalsUniform};
 use bevy::render::render_asset::RenderAssets;
+use bevy::render::render_resource::BufferBindingType;
 use bevy::{
     asset::ChangeWatcher,
     core_pipeline::{
@@ -176,6 +178,11 @@ impl Node for PostProcessNode {
         let Some(settings_binding) = settings_uniforms.uniforms().binding() else {
             return Ok(());
         };
+        // Get the globals uniform binding
+        let globals_buffer = world.resource::<GlobalsBuffer>();
+        let Some(globals_binding) = globals_buffer.buffer.binding() else {
+            return Ok(());
+        };
 
         // This will start a new "post process write", obtaining two texture
         // views from the view target - a `source` and a `destination`.
@@ -242,6 +249,10 @@ impl Node for PostProcessNode {
                         binding: 4,
                         // Set the settings binding
                         resource: settings_binding.clone(),
+                    },
+                    BindGroupEntry {
+                        binding: 5,
+                        resource: globals_binding,
                     },
                 ],
             });
@@ -329,6 +340,17 @@ impl FromWorld for PostProcessPipeline {
                         ty: bevy::render::render_resource::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // The globals struct
+                BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: ShaderStages::VERTEX_FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(GlobalsUniform::min_size()),
                     },
                     count: None,
                 },
