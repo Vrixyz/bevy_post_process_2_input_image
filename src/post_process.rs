@@ -35,18 +35,13 @@ use bevy::{
     utils::Duration,
 };
 
-use crate::{CameraSource, Dimensions};
+use crate::{Dimensions};
 
 /// It is generally encouraged to set up post processing effects as a plugin
 pub struct PostProcessPlugin;
 
 impl Plugin for PostProcessPlugin {
     fn build(&self, app: &mut App) {
-        // The settings will also be the data used in the shader.
-        // This plugin will prepare the component for the GPU by creating a uniform buffer
-        // and writing the data to that buffer every frame.
-        app.add_plugin(ExtractComponentPlugin::<CameraSource>::default());
-
         // We need to get the render app from the main app
         let Ok(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -98,7 +93,7 @@ struct PostProcessNode {
     // The node needs a query to gather data from the ECS in order to do its rendering,
     // but it's not a normal system so we need to define it manually.
     query: QueryState<&'static ViewTarget, With<ExtractedView>>,
-    query_source: QueryState<&'static CameraSource>,
+    query_source: QueryState<&'static Dimensions>,
 }
 
 impl PostProcessNode {
@@ -140,7 +135,7 @@ impl Node for PostProcessNode {
         let view_entity = graph_context.view_entity();
 
         // TODO: this is not used, but without it the textures are not filled... not sure why..?
-        let Ok(source) = self.query_source.get_manual(world, view_entity) else {
+        let Ok(dimensions) = self.query_source.get_manual(world, view_entity) else {
             return Ok(());
         };
         //
@@ -175,14 +170,14 @@ impl Node for PostProcessNode {
         let post_process_main = view_target_main.post_process_write();
 
         // TODO: Should I use the post_process_write or the references to the images ?
-        let Some(handle_dimensions) = world.get_resource::<Dimensions>() else {
+       /*let Some(handle_dimensions) = world.get_resource::<Dimensions>() else {
             return Ok(());
-        };
+        };*/
         let gpu_images = world.get_resource::<RenderAssets<Image>>().unwrap();
 
         // retrieve the render resources from handles
         let mut images = vec![];
-        for handle in handle_dimensions.dimensions.iter().take(MAX_TEXTURE_COUNT) {
+        for handle in dimensions.dimensions.iter().take(MAX_TEXTURE_COUNT) {
             match gpu_images.get(&handle.image) {
                 Some(image) => images.push(image),
                 None => return Ok(()),
@@ -195,7 +190,7 @@ impl Node for PostProcessNode {
         for image in images
             .iter()
             .cycle()
-            .skip(handle_dimensions.selected as usize)
+            .skip(dimensions.selected as usize)
             .take(MAX_TEXTURE_COUNT.min(images.len()))
         {
             textures.push(&*image.texture_view);
@@ -339,10 +334,4 @@ impl FromWorld for PostProcessPipeline {
             pipeline_id,
         }
     }
-}
-
-// This is the component that will get passed to the shader
-#[derive(ShaderType, Clone, Reflect, FromReflect)]
-pub struct PostProcessSettings {
-    pub selected_texture: u32,
 }
