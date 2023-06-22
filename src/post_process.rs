@@ -1,9 +1,12 @@
+use std::num::NonZeroU32;
+
 use bevy::core_pipeline::core_2d;
 use bevy::prelude::*;
 
 use bevy::render::globals::{GlobalsBuffer, GlobalsUniform};
 use bevy::render::render_asset::RenderAssets;
-use bevy::render::render_resource::BufferBindingType;
+use bevy::render::render_resource::{AsBindGroup, BufferBindingType, UniformBuffer};
+use bevy::render::texture::GpuImage;
 use bevy::{
     asset::ChangeWatcher,
     core_pipeline::{
@@ -39,19 +42,10 @@ pub struct PostProcessPlugin;
 
 impl Plugin for PostProcessPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<PostProcessSettings>()
-            // The settings will be a component that lives in the main world but will
-            // be extracted to the render world every frame.
-            // This makes it possible to control the effect from the main world.
-            // This plugin will take care of extracting it automatically.
-            // It's important to derive [`ExtractComponent`] on [`PostProcessingSettings`]
-            // for this plugin to work correctly.
-            .add_plugin(ExtractComponentPlugin::<PostProcessSettings>::default())
-            // The settings will also be the data used in the shader.
-            // This plugin will prepare the component for the GPU by creating a uniform buffer
-            // and writing the data to that buffer every frame.
-            .add_plugin(UniformComponentPlugin::<PostProcessSettings>::default())
-            .add_plugin(ExtractComponentPlugin::<CameraSource>::default());
+        // The settings will also be the data used in the shader.
+        // This plugin will prepare the component for the GPU by creating a uniform buffer
+        // and writing the data to that buffer every frame.
+        app.add_plugin(ExtractComponentPlugin::<CameraSource>::default());
 
         // We need to get the render app from the main app
         let Ok(render_app) = app.get_sub_app_mut(RenderApp) else {
@@ -145,22 +139,14 @@ impl Node for PostProcessNode {
         // Get the entity of the view for the render graph where this node is running
         let view_entity = graph_context.view_entity();
 
+        // TODO: this is not used, but without it the textures are not filled... not sure why..?
         let Ok(source) = self.query_source.get_manual(world, view_entity) else {
             return Ok(());
         };
-        // TODO: extract 1 component which targets the 2 other cameras, get their view_target from there
+        //
         let Ok(view_target_main) = self.query.get_manual(world, view_entity) else {
             return Ok(());
         };
-        // We get the data we need from the world based on the view entity passed to the node.
-        // The data is the query that was defined earlier in the [`PostProcessNode`]
-        let Ok(view_target_1) = self.query.get_manual(world, source.s1) else {
-            return Ok(());
-        };
-        let Ok(view_target_2) = self.query.get_manual(world, source.s2) else {
-            return Ok(());
-        };
-
         // Get the pipeline resource that contains the global data we need to create the render pipeline
         let post_process_pipeline = world.resource::<PostProcessPipeline>();
 
@@ -173,11 +159,6 @@ impl Node for PostProcessNode {
             return Ok(());
         };
 
-        // Get the settings uniform binding
-        let settings_uniforms = world.resource::<ComponentUniforms<PostProcessSettings>>();
-        let Some(settings_binding) = settings_uniforms.uniforms().binding() else {
-            return Ok(());
-        };
         // Get the globals uniform binding
         let globals_buffer = world.resource::<GlobalsBuffer>();
         let Some(globals_binding) = globals_buffer.buffer.binding() else {
@@ -192,8 +173,6 @@ impl Node for PostProcessNode {
         // texture to the `destination` texture. Failing to do so will cause
         // the current main texture information to be lost.
         let post_process_main = view_target_main.post_process_write();
-        let post_process_1 = view_target_1.post_process_write();
-        let post_process_2 = view_target_2.post_process_write();
 
         // TODO: Should I use the post_process_write or the references to the images ?
         let Some(handle_dimensions) = world.get_resource::<Dimensions>() else {
@@ -201,12 +180,26 @@ impl Node for PostProcessNode {
         };
         let gpu_images = world.get_resource::<RenderAssets<Image>>().unwrap();
 
-        let image_dim1 = handle_dimensions.current.clone().unwrap_or_default();
-        let gpu_image_1 = &gpu_images.get(&image_dim1).unwrap();
+        // retrieve the render resources from handles
+        let mut images = vec![];
+        for handle in handle_dimensions.dimensions.iter().take(MAX_TEXTURE_COUNT) {
+            match gpu_images.get(&handle.image) {
+                Some(image) => images.push(image),
+                None => return Ok(()),
+            }
+        }
 
-        let image_dim2 = handle_dimensions.other.clone().unwrap_or_default();
-        let gpu_image_2 = gpu_images.get(&image_dim2).unwrap();
+        let mut textures = Vec::with_capacity(MAX_TEXTURE_COUNT);
 
+        // fill in up to the first `MAX_TEXTURE_COUNT` textures and samplers to the arrays
+        for image in images
+            .iter()
+            .cycle()
+            .skip(handle_dimensions.selected as usize)
+            .take(MAX_TEXTURE_COUNT.min(images.len()))
+        {
+            textures.push(&*image.texture_view);
+        }
         // The bind_group gets created each frame.
         //
         // Normally, you would create a bind_group in the Queue set, but this doesn't work with the post_process_write().
@@ -221,33 +214,15 @@ impl Node for PostProcessNode {
                 entries: &[
                     BindGroupEntry {
                         binding: 0,
-                        // Make sure to use the source view
-                        resource: BindingResource::TextureView(&gpu_image_1.texture_view),
+                        resource: globals_binding,
                     },
                     BindGroupEntry {
                         binding: 1,
-                        // Use the sampler created for the pipeline
-                        resource: BindingResource::Sampler(&gpu_image_1.sampler),
+                        resource: BindingResource::TextureViewArray(&textures[..]),
                     },
                     BindGroupEntry {
                         binding: 2,
-                        // Make sure to use the source view
-                        //resource: BindingResource::TextureView(&view.texture_view),
-                        resource: BindingResource::TextureView(&gpu_image_2.texture_view),
-                    },
-                    BindGroupEntry {
-                        binding: 3,
-                        // Use the sampler created for the pipeline
-                        resource: BindingResource::Sampler(&gpu_image_2.sampler),
-                    },
-                    BindGroupEntry {
-                        binding: 4,
-                        // Set the settings binding
-                        resource: settings_binding.clone(),
-                    },
-                    BindGroupEntry {
-                        binding: 5,
-                        resource: globals_binding,
+                        resource: BindingResource::Sampler(&images[0].sampler),
                     },
                 ],
             });
@@ -279,9 +254,10 @@ impl Node for PostProcessNode {
 #[derive(Resource, Clone, Debug)]
 struct PostProcessPipeline {
     layout: BindGroupLayout,
-    sampler: Sampler,
     pipeline_id: CachedRenderPipelineId,
 }
+
+const MAX_TEXTURE_COUNT: usize = 2;
 
 impl FromWorld for PostProcessPipeline {
     fn from_world(world: &mut World) -> Self {
@@ -291,56 +267,9 @@ impl FromWorld for PostProcessPipeline {
         let layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("post_process_bind_group_layout"),
             entries: &[
-                // The screen texture
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: true },
-                        view_dimension: TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                // The sampler that will be used to sample the screen texture
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
-                    count: None,
-                },
-                // The screen texture
-                BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: true },
-                        view_dimension: TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                // The sampler that will be used to sample the screen texture
-                BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
-                    count: None,
-                },
-                // The settings uniform that will control the effect
-                BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Buffer {
-                        ty: bevy::render::render_resource::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
                 // The globals struct
                 BindGroupLayoutEntry {
-                    binding: 5,
+                    binding: 0,
                     visibility: ShaderStages::VERTEX_FRAGMENT,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
@@ -349,12 +278,29 @@ impl FromWorld for PostProcessPipeline {
                     },
                     count: None,
                 },
+                // @group(0) @binding(1) var textures: binding_array<texture_2d<f32>>;
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: NonZeroU32::new(MAX_TEXTURE_COUNT as u32),
+                },
+                // @group(0) @binding(2) var nearest_sampler: sampler;
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                    // Note: as textures, multiple samplers can also be bound onto one binding slot.
+                    // One may need to pay attention to the limit of sampler binding amount on some platforms.
+                    // count: NonZeroU32::new(MAX_TEXTURE_COUNT as u32),
+                },
             ],
         });
-
-        // We can create the sampler here since it won't change at runtime and doesn't depend on the view
-        let sampler = render_device.create_sampler(&SamplerDescriptor::default());
-
         // Get the shader handle
         let shader = world
             .resource::<AssetServer>()
@@ -390,14 +336,13 @@ impl FromWorld for PostProcessPipeline {
 
         Self {
             layout,
-            sampler,
             pipeline_id,
         }
     }
 }
 
 // This is the component that will get passed to the shader
-#[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType, Reflect, FromReflect)]
+#[derive(ShaderType, Clone, Reflect, FromReflect)]
 pub struct PostProcessSettings {
-    pub intensity: f32,
+    pub selected_texture: u32,
 }

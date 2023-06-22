@@ -20,22 +20,10 @@
 // You don't need to worry about this too much since bevy will compute the correct UVs for you.
 #import bevy_core_pipeline::fullscreen_vertex_shader
 
-@group(0) @binding(0)
-var screen_texture_1: texture_2d<f32>;
-@group(0) @binding(1)
-var texture_sampler_1: sampler;
-@group(0) @binding(2)
-var screen_texture_2: texture_2d<f32>;
-@group(0) @binding(3)
-var texture_sampler_2: sampler;
+@group(0) @binding(0) var<uniform> globals: Globals;
+@group(0) @binding(1) var textures: binding_array<texture_2d<f32>>;
+@group(0) @binding(2) var nearest_sampler: sampler;
 
-@group(0) @binding(5) var<uniform> globals: Globals;
-
-struct PostProcessSettings {
-    intensity: f32,
-}
-@group(0) @binding(4)
-var<uniform> settings: PostProcessSettings;
 fn mod289(x: vec2<f32>) -> vec2<f32> {
     return x - floor(x * (1. / 289.)) * 289.;
 }
@@ -98,8 +86,8 @@ fn simplexNoise2(v: vec2<f32>) -> f32 {
 @fragment
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let noise = simplexNoise2((in.uv * 15.5) + globals.time * 0.5);
-    let c1 = textureSample(screen_texture_1, texture_sampler_1, in.uv + noise * 0.005 + sin(globals.time) * 0.01);// * 0.1;
-    var c2 = textureSample(screen_texture_2, texture_sampler_2, in.uv);
+    let c1 = textureSample(textures[0], nearest_sampler, in.uv + noise * 0.005 + sin(globals.time) * 0.01);// * 0.1;
+    var c2 = textureSample(textures[1], nearest_sampler, in.uv);
     if c2.r > 0.0 || c2.g > 0.0 || c2.b > 0.0 {
         return c2;
     }

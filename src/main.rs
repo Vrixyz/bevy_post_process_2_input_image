@@ -5,6 +5,7 @@ mod post_process;
 use bevy::input::common_conditions::input_toggle_active;
 use bevy::{
     core_pipeline::clear_color::ClearColorConfig,
+    input::common_conditions::input_just_pressed,
     prelude::*,
     render::{
         camera::RenderTarget,
@@ -15,7 +16,6 @@ use bevy::{
         },
         view::RenderLayers,
     },
-    input::common_conditions::input_just_pressed,
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use post_process::{PostProcessPlugin, PostProcessSettings};
@@ -32,16 +32,25 @@ fn main() {
         .add_plugin(PostProcessPlugin)
         .add_systems(Startup, setup)
         .add_systems(Update, rotator_system)
-        .add_systems(Update, switch_dimension.run_if(input_just_pressed(KeyCode::D)))
+        .add_systems(
+            Update,
+            switch_dimension.run_if(input_just_pressed(KeyCode::D)),
+        )
         .run();
 }
 
 #[derive(Resource, Default, Debug, Clone, ExtractResource, Reflect, FromReflect)]
 struct Dimensions {
-    current: Option<Handle<Image>>,
-    other: Option<Handle<Image>>,
+    dimensions: Vec<DimensionDef>,
+    selected: u32,
 }
-
+#[derive(Default, Debug, Clone, Reflect, FromReflect)]
+struct DimensionDef {
+    image: Handle<Image>,
+    // FIXME: should be RenderLayers but that doesn't support FromReflect yet.
+    // careful, layer id is not the same as layermask.
+    layer_id: u32,
+}
 
 #[derive(Component, Clone, ExtractComponent, Reflect, FromReflect)]
 struct CameraSource {
@@ -131,7 +140,6 @@ fn setup(
             transform: Transform::from_xyz(0.0, 0.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         },
-        PostProcessSettings { intensity: 0.02 },
         CameraSource {
             s1: camera_1,
             s2: camera_2,
@@ -139,8 +147,17 @@ fn setup(
     ));
 
     commands.insert_resource(Dimensions {
-        current: Some(image_handle_dimension_1),
-        other: Some(image_handle_dimension_2)
+        dimensions: vec![
+            DimensionDef {
+                image: image_handle_dimension_1,
+                layer_id: 1,
+            },
+            DimensionDef {
+                image: image_handle_dimension_2,
+                layer_id: 1,
+            },
+        ],
+        selected: 0,
     });
 }
 
@@ -208,7 +225,9 @@ fn rotator_system(time: Res<Time>, mut query: Query<(&mut Transform, &Rotate)>) 
 }
 
 fn switch_dimension(mut dim: ResMut<Dimensions>) {
-        let current = dim.current.clone();
-        let other = dim.other.clone();
-        *dim = Dimensions {current: other, other: current};
+    let nb_dimensions = dim.dimensions.len() as u32;
+    if nb_dimensions == 0 {
+        return;
+    }
+    dim.selected = (dim.selected + 1) % nb_dimensions;
 }
